@@ -7,10 +7,12 @@ import (
 	"log"
 	"net"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
+	"github.com/pelletier/go-toml/v2"
 	"golang.org/x/sys/unix"
 )
 
@@ -275,6 +277,38 @@ func (l *mirrorList) Set(value string) error {
 	return nil
 }
 
+type Config struct {
+	Listen struct {
+		Port int    `toml:"port"`
+		IP   string `toml:"ip"`
+	} `toml:"listen"`
+
+	Forward struct {
+		Port int    `toml:"port"`
+		IP   string `toml:"ip"`
+	} `toml:"forward"`
+
+	Mirrors []struct {
+		Port int    `toml:"port"`
+		IP   string `toml:"ip"`
+	} `toml:"mirrors"`
+}
+
+func loadConfig(confPath string) (*Config, error) {
+	data, err := os.ReadFile(confPath)
+	if err != nil {
+		return nil, fmt.Errorf("Error reading config %s: %w", confPath, err)
+	}
+
+	var cfg Config
+
+	if err := toml.Unmarshal(data, &cfg); err != nil {
+		return nil, fmt.Errorf("Error decoding TOML: %w", err)
+	}
+
+	return &cfg, nil
+}
+
 func main() {
 	var (
 		connectTimeout  time.Duration
@@ -283,6 +317,9 @@ func main() {
 		forwardAddress  string
 		mirrorAddresses mirrorList
 		useZeroCopy     bool
+		config          string
+		errConfig       error
+		cfg             *Config
 	)
 
 	flag.BoolVar(&useZeroCopy, "z", false, "use zero copy")
@@ -292,9 +329,30 @@ func main() {
 	flag.DurationVar(&connectTimeout, "t", 500*time.Millisecond, "mirror connect timeout")
 	flag.DurationVar(&delay, "d", 20*time.Second, "delay connecting to mirror after unsuccessful attempt")
 	flag.DurationVar(&writeTimeout, "wt", 20*time.Millisecond, "mirror write timeout")
+	flag.StringVar(&config, "c", "", "toml config path (e.g. 'config.toml')")
 
 	flag.Parse()
+	// var cfg Config
+	// var err error
 
+	fmt.Printf("Config %s:\n", config)
+	if config != "" {
+		cfg, errConfig = loadConfig(config)
+		if errConfig != nil {
+			fmt.Println("Error loading config")
+			return
+		}
+
+		fmt.Printf("")
+		listenAddress = cfg.Listen.IP + ":" + strconv.Itoa(cfg.Listen.Port)
+		forwardAddress = cfg.Forward.IP + ":" + strconv.Itoa(cfg.Forward.Port)
+		mirrorAddresses = mirrorAddresses[:0]
+		for _, m := range cfg.Mirrors {
+			addr := m.IP + ":" + strconv.Itoa(m.Port)
+			mirrorAddresses = append(mirrorAddresses, addr)
+		}
+
+	}
 	if listenAddress == "" || forwardAddress == "" {
 		flag.Usage()
 		return

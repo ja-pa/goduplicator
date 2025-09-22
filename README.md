@@ -18,6 +18,7 @@ Download binary
 ---------------
 You can download binary files here: https://github.com/mkevac/goduplicator/releases
 
+
 Install from source
 -------------------
 You would need Go language installed.
